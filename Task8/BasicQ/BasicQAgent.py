@@ -15,7 +15,7 @@ class QLearningAgent():
                 
         self.env = env
         self.this_episode = 0
-        self.decay_rate = 0.0001
+        self.decay_rate = 0.0005
         self.Q_values = defaultdict(lambda: np.zeros(self.action_dim)) # dictionary der key er state og verdien er en liste av lengde action_dim
 
     def update_Q_values(self, state, new_state, reward, action):
@@ -80,10 +80,9 @@ class QLearningAgent():
 
 
 if __name__ == '__main__':
-    agent = QLearningAgent(2, 4, learning_rate_initial=0.05, epsilon=0.05, gamma=0.9, env="CartPole-v1")
+    agent = QLearningAgent(2, 4, learning_rate_initial=0.1, epsilon=0.1, gamma=0.9, env="CartPole-v1")
     
     agent.read_q_values("values.pk1") # Leser Q_values fra fil
-    
-    #agent.train(episodes=10_000) # Trener agenten
+    agent.train(episodes=10000) # Trener agenten
     
     agent.train(episodes=1, render=True, write_to_file=False) # visualisering
