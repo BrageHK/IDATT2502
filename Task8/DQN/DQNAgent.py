@@ -2,7 +2,6 @@ import numpy as np
 import gymnasium as gym
 from collections import deque
 
-import pickle
 import torch
 import torch.nn as nn
 from QNetwork import QNetwork
@@ -21,7 +20,7 @@ class QLearningAgent():
         self.epsilon_initial = epsilon
         self.gamma = gamma
         self.batch = batch
-                
+        
         self.env = env
         self.this_episode = 0
         self.decay_rate = decay_rate
@@ -42,10 +41,11 @@ class QLearningAgent():
             return torch.argmax(value_func).item()
         
     def save(self, filename):
-        pass
+        torch.save(self.Q_network.state_dict(), filename)
 
-    def read(self, filename):
-        pass
+    def load(self, filename):
+        self.Q_network.load_state_dict(torch.load(filename))
+        self.Q_network.eval()
     
     def compute_loss(self, batch):
         # Unpack the batch
@@ -73,9 +73,9 @@ class QLearningAgent():
         return loss
   
     def train(self, episodes, render = False):
-        for _ in range(episodes):
+        for i in range(episodes):
             
-            if(render):
+            if(i % 1 == 0):
                 env = gym.make(self.env, render_mode="human")
             else:
                 env = gym.make(self.env)
@@ -120,7 +120,6 @@ class QLearningAgent():
                     
                     predicted_action_values = self.Q_network(states).gather(1, actions.view(-1, 1)).squeeze()
                     
-                    
                     loss = self.loss(td_target, predicted_action_values)
             
                     # optimize the model
@@ -129,10 +128,11 @@ class QLearningAgent():
                     self.optimizer.step()
             print("episode: ", self.this_episode, "score: ", score, "epsilon: ", self.epsilon, "learning_rate: ", self.learning_rate)
         #self.save("QNetwork")
-            
-
 
 if __name__ == '__main__':
-    agent = QLearningAgent(2, 4, learning_rate_initial=0.0001, epsilon=0.9, gamma=0.99, env="CartPole-v1", hidden_dim=100, decay_rate=0.006)
-    agent.train(episodes=1000)
+    agent = QLearningAgent(2, 4, learning_rate_initial=0.0001, epsilon=0.0001, gamma=0.99, env="CartPole-v1", hidden_dim=100, decay_rate=0.02)
+    agent.load("test.pk1")
+    agent.train(episodes=4)
     #agent.train(episodes=3, render=True) # visualisering
+    
+    agent.save("test.pk1")
