@@ -5,10 +5,8 @@ from collections import deque
 import torch
 import torch.nn as nn
 from QNetwork import QNetwork
+from Connect_four import ConnectFour
 from random import sample 
-
-
-
 
 class QLearningAgent():
     def __init__(self, action_dim, observed_dim, learning_rate_initial, epsilon, gamma, env, hidden_dim, decay_rate = 0.001, batch=200, maxlen=2000):
@@ -26,6 +24,7 @@ class QLearningAgent():
         self.decay_rate = decay_rate
         
         self.Q_network = QNetwork(object_dim=observed_dim, action_dim=action_dim, hidden_dim=hidden_dim)
+        self.opponent_Q_network = QNetwork(object_dim=observed_dim, action_dim=action_dim, hidden_dim=hidden_dim)
         self.buffer = deque(maxlen=maxlen)
         self.optimizer = torch.optim.Adam(self.Q_network.parameters(), self.learning_rate)
         
@@ -34,18 +33,28 @@ class QLearningAgent():
     def decay_epsilon(self):
         self.epsilon = self.epsilon_initial * 1/(1 + self.decay_rate * self.this_episode)
         
-    def act(self, value_func):
+    def act(self, value_func, env):
         if np.random.rand() < self.epsilon:
-            return np.random.randint(self.action_dim)
+            legal_moves = [x for x in range(7) if env.is_valid_location(x)]
+            return np.random.choice(legal_moves)
         else:
-            return torch.argmax(value_func).item()
+            legal_values = [value_func[x] for x in range(7) if env.is_valid_location(x)]
+            legal_moves = [x for x in range(7) if env.is_valid_location(x)]
+            
+            index = torch.argmax(torch.Tensor(legal_values)).item()
+            return legal_moves[index]
+
         
     def save(self, filename):
         torch.save(self.Q_network.state_dict(), filename)
 
     def load(self, filename):
         self.Q_network.load_state_dict(torch.load(filename))
-        self.Q_network.eval()
+        #self.Q_network.eval() #Tar av dropout
+        
+    def copy_nn(self):
+        self.opponent_Q_network.load_state_dict(self.Q_network.state_dict())
+        #self.Q_network.eval() #Tar av dropout
     
     def compute_loss(self, batch):
         # Unpack the batch
@@ -73,32 +82,32 @@ class QLearningAgent():
         return loss
   
     def train(self, episodes, render = False):
+        #Delete this maybe?
+        state = torch.tensor([0])
         for i in range(episodes):
-            
-            if(i % 1 == 0):
-                env = gym.make(self.env, render_mode="human")
-            else:
-                env = gym.make(self.env)
-
-            observation, info = env.reset()
-            state = torch.tensor(observation)
-            
             self.this_episode += 1
+            
+            # Spiller mot seg selv
+            if i % 100 == 0:
+                self.copy_nn()
+            
+            env = ConnectFour()
+
+            observation = env.reset()
+            state = torch.tensor(observation, dtype=torch.float32)
 
             self.decay_epsilon()
             
-            terminated = False
-            truncated = False
             score = 0
+            
             while(True):
+                # Player 1
                 value_func = self.Q_network.forward(state) # Predict
-                action = self.act(value_func) # Get action
+                action = self.act(value_func, env) # Get action
                 
-                observation, reward, terminated, truncated, _ = env.step(action) # Do action
-                next_state  = torch.tensor(observation)
+                observation, reward, done = env.step(action) # Do action
+                next_state  = torch.tensor(observation, dtype=torch.float32)
                 score += reward
-                
-                done = 1 if truncated or terminated else 0
                 self.buffer.append((state, action, reward, next_state, done))
                 
                 state = next_state
@@ -106,19 +115,20 @@ class QLearningAgent():
                 if(done):
                     break
                 if len(self.buffer) > self.batch:
+                
                     random_sample = sample(self.buffer, self.batch)
                     
-                    states = torch.stack([x[0] for x in random_sample])
-                    actions = torch.tensor([x[1] for x in random_sample])
+                    states = torch.stack([x[0].to(torch.float) for x in random_sample])
+                    actions = torch.tensor([x[1] for x in random_sample], dtype=torch.float32)
                     rewards = torch.tensor([x[2] for x in random_sample], dtype=torch.float32)
-                    next_states = torch.stack([x[3] for x in random_sample])
+                    next_states = torch.stack([x[3].to(torch.float) for x in random_sample])
                     dones = torch.tensor([x[4] for x in random_sample], dtype=torch.float32)
-                    
+                                        
                     target_max, _ = self.Q_network(next_states).max(dim=1)
                     
                     td_target = rewards + self.gamma * target_max * (1 - dones)
                     
-                    predicted_action_values = self.Q_network(states).gather(1, actions.view(-1, 1)).squeeze()
+                    predicted_action_values = self.Q_network(states).gather(1, actions.view(-1, 1).long()).squeeze()
                     
                     loss = self.loss(td_target, predicted_action_values)
             
@@ -126,12 +136,29 @@ class QLearningAgent():
                     self.optimizer.zero_grad()
                     loss.backward()
                     self.optimizer.step()
-            print("episode: ", self.this_episode, "score: ", score, "epsilon: ", self.epsilon, "learning_rate: ", self.learning_rate)
-
+                
+                # Player 2
+                value_func = self.opponent_Q_network.forward(-state) # Predict
+                action = self.act(value_func, env) # Get action
+                
+                observation, reward, done = env.step(action) # Do action
+                reward = -reward # If opponent wins, reward is negative
+                score += reward
+                next_state  = torch.tensor(observation)
+                
+                self.buffer.append((state, action, reward, next_state, done))
+                if(done):
+                    break
+                
+            
+            if self.this_episode % 100 == 0:
+                print("episode: ", self.this_episode, "score: ", score, "epsilon: ", self.epsilon)
+                print("State: ", state.reshape(6,7))
+            
 if __name__ == '__main__':
-    agent = QLearningAgent(2, 4, learning_rate_initial=0.0001, epsilon=0.0001, gamma=0.99, env="CartPole-v1", hidden_dim=100, decay_rate=0.02)
-    agent.load("test.pk1")
-    agent.train(episodes=4)
+    agent = QLearningAgent(7, 42, learning_rate_initial=0.0001, epsilon=1., gamma=0.99, env="CartPole-v1", hidden_dim=100, decay_rate=0.005)
+    agent.load("connect4.pk1")
+    agent.train(episodes=500)
     #agent.train(episodes=3, render=True) # visualisering
     
-    agent.save("test.pk1")
+    agent.save("connect4.pk1")
