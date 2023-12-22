@@ -80,9 +80,9 @@ class QLearningAgent():
 
 
 if __name__ == '__main__':
-    agent = QLearningAgent(2, 4, learning_rate_initial=0.1, epsilon=0.1, gamma=0.9, env="CartPole-v1")
+    agent = QLearningAgent(2, 4, learning_rate_initial=0.1, epsilon=0., gamma=0.9, env="CartPole-v1")
     
     agent.read_q_values("values.pk1") # Leser Q_values fra fil
-    #agent.train(episodes=10000) # Trener agenten
+    agent.train(episodes=10000, render=True) # Trener agenten
     
     agent.train(episodes=1, render=True, write_to_file=False) # visualisering
